@@ -57,8 +57,22 @@ def extract_artist_ids():
     
     artist_ids = [aid for aid in artist_ids if aid]
     
-    with open(config.ARTISTS_FILE, 'w') as f:
-        f.write(', '.join(artist_ids))
+    # === LOAD existing artists (if file exists) ===
+    existing_artist_ids = set()
+    if os.path.exists(config.ARTISTS_FILE):
+        with open(config.ARTISTS_FILE, 'r') as f:
+            existing_artist_ids = {x.strip() for x in f.read().split(',') if x.strip()}
     
-    print(f"Artist IDs saved to {config.ARTISTS_FILE}")
-    return len(artist_ids)
+    print(f"Existing artists in file: {len(existing_artist_ids)}")
+    
+    # === MERGE ===
+    all_artist_ids = existing_artist_ids.union(artist_ids)
+    
+    print(f"Total unique artists after merge: {len(all_artist_ids)}")
+    
+    # === SAVE BACK (overwrite with merged list) ===
+    with open(config.ARTISTS_FILE, 'w') as f:
+        f.write(', '.join(sorted(all_artist_ids)))
+    
+    print(f"Updated artist IDs saved to {config.ARTISTS_FILE}")
+    return len(all_artist_ids)
