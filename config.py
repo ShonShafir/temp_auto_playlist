@@ -2,9 +2,6 @@
 
 # Local playlist URLs for testing
 PLAYLIST_URLS = [
-    'https://open.spotify.com/playlist/47dNMRY60zT6RdqsIxjhLa',
-    'https://open.spotify.com/playlist/0G1Vsob3SIc9nTGj12hxfo',
-    'https://open.spotify.com/playlist/2rqgtYvyGF3pxjfRv5jG79?si=hr74tkGoSh2JhPPMHMfGfA&pi=s9EBVezTQ--NG',
     'https://open.spotify.com/playlist/2q1wEyWJKw65EIiTsZmVNZ?si=3843bdb006034e4d'
 ]
 
