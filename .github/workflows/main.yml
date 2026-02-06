@@ -1,7 +1,7 @@
 name: Manual Artist Fetch
 
 on:
-  workflow_dispatch:  
+  workflow_dispatch:   # Trigger manually from the Actions tab
 
 permissions:
   contents: write
@@ -11,11 +11,61 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Commit and Push
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0  # required to allow commits and pushes
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run Spotify automation
+        run: python main.py
+        env:
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
+          SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} 
+
+      # 4. The "Switcheroo": Save Files -> Switch to Dev -> Restore Files -> Push
+      - name: Switch to Dev and Push Files
         run: |
-          # ... git config ...
-          git add artists_id.txt
+          # --- Configure Git ---
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # --- Save generated files to /tmp (Safe Zone) ---
+          echo "Backing up files to /tmp..."
+          cp artists_id.txt /tmp/artists_id.txt 2>/dev/null || true
+          cp today_releases.txt /tmp/today_releases.txt 2>/dev/null || true
+          cp yesterday_releases.txt /tmp/yesterday_releases.txt 2>/dev/null || true
+
+          # --- Switch to DEV branch ---
+          # This deletes your feature code from the folder and loads dev history
+          echo "Switching to dev branch..."
+          git fetch origin dev
+          git checkout dev
+
+          # --- Restore files from /tmp ---
+          echo "Restoring files..."
+          cp /tmp/artists_id.txt artists_id.txt 2>/dev/null || true
+          cp /tmp/today_releases.txt today_releases.txt 2>/dev/null || true
+          cp /tmp/yesterday_releases.txt yesterday_releases.txt 2>/dev/null || true
+
+          # --- Commit and Push ---
+          git add artists_id.txt today_releases.txt yesterday_releases.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "Manual update from feature branch [auto]"
+            # Safety: Pull latest dev changes before pushing
+            git pull origin dev --rebase
+            git push origin HEAD:dev
+            echo "✅ Successfully pushed updated files to dev."
+          fi
           git commit -m "Manual update"
           git push origin HEAD:dev
 
