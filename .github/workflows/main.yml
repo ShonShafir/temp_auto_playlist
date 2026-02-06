@@ -1,7 +1,7 @@
 name: Manual Artist Fetch
 
 on:
-  workflow_dispatch:   # Trigger manually from the Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,60 +13,78 @@ jobs:
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0  # required to allow commits and pushes
+          fetch-depth: 0  # CRITICAL: Allows switching branches
+# -----------------------------------------------------------------
+      # STEP 1: "The Sync" - מניעת דריסת נתונים
+      # מושכים את הרשימה העדכנית מ-dev לפני שהסקריפט רץ
+      # -----------------------------------------------------------------
+      - name: Fetch latest artists_id.txt from Dev
+        run: |
+          git fetch origin dev
+          # This pulls just the FILE from dev, not the branch history
+          git checkout origin/dev -- artists_id.txt
+          echo "✅ Synced artists_id.txt with dev branch."
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
       - run: pip install -r requirements.txt
-
+      # -----------------------------------------------------------------
+      # STEP 2: הרצת הסקריפט (עם הקוד החדש מה-Feature)
+      # -----------------------------------------------------------------
       - name: Run Spotify automation
         run: python main.py
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           SPOTIFY_CLIENT_SECRET: ${{ secrets.SPOTIFY_CLIENT_SECRET }}
           SPOTIFY_REFRESH_TOKEN: ${{ secrets.SPOTIFY_REFRESH_TOKEN }}
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }} 
-
-      # 4. The "Switcheroo": Save Files -> Switch to Dev -> Restore Files -> Push
-      - name: Switch to Dev and Push Files
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      # -----------------------------------------------------------------
+      # STEP 3: "Switch & Steal" - העברת הקובץ ל-dev
+      # -----------------------------------------------------------------
+      - name: Switch to Dev and Steal File
         run: |
-          # --- Configure Git ---
+          # --- הגדרת משתמש ---
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # --- Save generated files to /tmp (Safe Zone) ---
-          echo "Backing up files to /tmp..."
-          cp artists_id.txt /tmp/artists_id.txt 2>/dev/null || true
-          cp today_releases.txt /tmp/today_releases.txt 2>/dev/null || true
-          cp yesterday_releases.txt /tmp/yesterday_releases.txt 2>/dev/null || true
+          # --- 1. שמירה זמנית ב-Feature Branch ---
+          git add artists_id.txt
 
-          # --- Switch to DEV branch ---
-          # This deletes your feature code from the folder and loads dev history
-          echo "Switching to dev branch..."
+          # בדיקה: האם הסקריפט בכלל מצא משהו חדש? אם לא, עוצרים כאן בירוק.
+          if git diff --cached --quiet; then
+            echo "⚠️ No changes detected in feature branch. Exiting successfully."
+            exit 0
+          fi
+
+          # שומרים "קומיט זמני" כדי שנוכל למשוך אותו אחר כך
+          git commit -m "Temp data commit"
+
+          # --- 2. מעבר ל-Dev ---
+          echo "Switching to dev..."
           git fetch origin dev
           git checkout dev
 
-          # --- Restore files from /tmp ---
-          echo "Restoring files..."
-          cp /tmp/artists_id.txt artists_id.txt 2>/dev/null || true
-          cp /tmp/today_releases.txt today_releases.txt 2>/dev/null || true
-          cp /tmp/yesterday_releases.txt yesterday_releases.txt 2>/dev/null || true
+          # --- 3. משיכת הקובץ מהבראנץ' הקודם (המינוס -) ---
+          # זה הטריק שגונב את הקובץ מה-Commit הזמני שיצרנו למעלה
+          echo "Stealing file from previous branch..."
+          git checkout - -- artists_id.txt
 
-          # --- Commit and Push ---
-          git add artists_id.txt today_releases.txt yesterday_releases.txt
+          # --- 4. שמירה ודחיפה ל-Dev ---
+          git add artists_id.txt
 
+          # בדיקה נוספת ליתר ביטחון (למרות שכבר בדקנו למעלה)
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+             echo "No changes to push to dev."
           else
-            git commit -m "Manual update from feature branch [auto]"
-            # Safety: Pull latest dev changes before pushing
-            git pull origin dev --rebase
-            git push origin HEAD:dev
-            echo "✅ Successfully pushed updated files to dev."
+             git commit -m "Update artist list [auto]"
+             
+             # משיכת שינויים אחרונים כדי למנוע התנגשויות (Rebase)
+             git pull origin dev --rebase
+             
+             git push origin HEAD:dev
+             echo "✅ Success! Pushed artists_id.txt to dev."
           fi
-          git commit -m "Manual update"
-          git push origin HEAD:dev
 
           
