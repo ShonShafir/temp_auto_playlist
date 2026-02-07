@@ -57,9 +57,14 @@ jobs:
             echo "⚠️ No changes detected in feature branch. Exiting successfully."
             exit 0
           fi
-
-          # שומרים "קומיט זמני" כדי שנוכל למשוך אותו אחר כך
-          git commit -m "Temp data commit"
+          
+          # 1. עושים Commit רגיל בבראנץ' הנוכחי
+          git commit -m "Auto-update artist list (Feature Branch)"
+          
+          # 2. דוחפים את השינוי ל-Feature Branch הנוכחי!
+          # github.ref מייצג את הבראנץ' שאתה רץ עליו כרגע
+          git push origin HEAD:${{ github.ref }}
+          echo "✅ Saved and pushed to Feature Branch."
 
           # --- 2. מעבר ל-Dev ---
           echo "Switching to dev..."
