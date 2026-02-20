@@ -3,6 +3,7 @@ import time
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import logging
+import requests
 
 log = logging.getLogger(__name__)
 
