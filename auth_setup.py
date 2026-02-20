@@ -37,32 +37,32 @@ class SpotifyClientManager:
             raise ValueError(f"Missing required environment variable: {var_name}")
         return value
     
-def _refresh_access_token(self, max_retries=3, backoff_factor=2):
-    """Refresh the access token with retries for transient network drops."""
-    retries = 0
+    def _refresh_access_token(self, max_retries=3, backoff_factor=2):
+        """Refresh the access token with retries for transient network drops."""
+        retries = 0
         
-    while retries <= max_retries:
-        try:
-            self.token_info = self.sp_oauth.refresh_access_token(self.refresh_token)
-            self.token_refresh_time = time.time()
-            log.info("✅ Spotify access token refreshed successfully")
-            return  # Success, exit the method completely
+        while retries <= max_retries:
+            try:
+                self.token_info = self.sp_oauth.refresh_access_token(self.refresh_token)
+                self.token_refresh_time = time.time()
+                log.info("✅ Spotify access token refreshed successfully")
+                return  # Success, exit the method completely
                 
-        except requests.exceptions.RequestException as e:
-            # This catches ConnectionError, ReadTimeout, and other network drops
-            retries += 1
-            if retries > max_retries:
-                log.error(f"❌ Failed to refresh access token after {max_retries} retries: {e}")
-                raise  # Give up and fail the GitHub Action
+            except requests.exceptions.RequestException as e:
+                # This catches ConnectionError, ReadTimeout, and other network drops
+                retries += 1
+                if retries > max_retries:
+                    log.error(f"❌ Failed to refresh access token after {max_retries} retries: {e}")
+                    raise  # Give up and fail the GitHub Action
                 
-            wait_time = backoff_factor ** retries
-            log.warning(f"⚠️ Network drop detected: {e}. Retrying {retries}/{max_retries} in {wait_time}s...")
-            time.sleep(wait_time)
+                wait_time = backoff_factor ** retries
+                log.warning(f"⚠️ Network drop detected: {e}. Retrying {retries}/{max_retries} in {wait_time}s...")
+                time.sleep(wait_time)
                 
-        except Exception as e:
-            # Catch other errors (like invalid tokens/credentials) and fail immediately
-            log.error(f"❌ Unrecoverable error refreshing access token: {e}")
-            raise
+            except Exception as e:
+                # Catch other errors (like invalid tokens/credentials) and fail immediately
+                log.error(f"❌ Unrecoverable error refreshing access token: {e}")
+                raise
     
     def _check_token_expiry(self):
         """Check if token needs refresh (refresh 5 minutes before expiry)."""
