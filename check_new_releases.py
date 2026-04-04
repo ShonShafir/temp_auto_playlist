@@ -169,7 +169,7 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
 
         for idx, artist_id in enumerate(batch):
             try:
-                albums = safe_spotify_call(sp.artist_albums, artist_id, album_type='album,single', limit=20)
+                albums = safe_spotify_call(sp.artist_albums, artist_id, album_type='album,single', limit=10)
                 time.sleep(0.5)
                 
                 for album in albums['items']:
