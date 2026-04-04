@@ -45,9 +45,13 @@ def extract_artist_ids():
             print(f"Found {len(tracks)} tracks in playlist")
             
             for item in tracks:
-                if item['track'] and item['track']['artists']:
-                    for artist in item['track']['artists']:
-                        artist_ids.add(artist['id'])
+                track_data = item.get('item') or item.get('track')
+                
+                if track_data and track_data.get('artists'):
+                    for artist in track_data['artists']:
+                        # Make sure the artist actually has an ID before adding
+                        if artist.get('id'): 
+                            artist_ids.add(artist['id'])
             
         except Exception as e:
             print(f"Error processing playlist {playlist_id}: {e}")
