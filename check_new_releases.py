@@ -1,6 +1,5 @@
 import time
 import logging
-import requests
 from datetime import datetime, timezone, timedelta
 from spotipy.exceptions import SpotifyException
 import config
@@ -15,23 +14,17 @@ log = logging.getLogger(__name__)
 
 # === Helper to handle rate limit ===
 def safe_spotify_call(func, *args, **kwargs):
-    """Wrap Spotify calls to handle 429 errors and connection timeouts."""
+    """Wrap Spotify calls to handle 429 errors (Too Many Requests)."""
     while True:
         try:
             return func(*args, **kwargs)
         except SpotifyException as e:
             if e.http_status == 429:
-                retry_after = 10 
-                if hasattr(e, 'headers') and getattr(e, 'headers') is not None:
-                    retry_after = int(e.headers.get("Retry-After", 10))
-                
-                log.warning(f"⚠️ Severe Rate limit. Backing off {retry_after}s...")
-                time.sleep(retry_after + 2)
+                retry_after = int(e.headers.get("Retry-After", 5))
+                log.warning(f"⚠️ Rate limited. Retrying after {retry_after} seconds...")
+                time.sleep(retry_after + 1)
             else:
                 raise e
-        except (requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
-            log.warning("⚠️ Connection timed out. The API is throttling. Backing off for 15s...")
-            time.sleep(15)
 
 # === Date parser ===
 def parse_spotify_date(date_str, precision):
@@ -127,6 +120,12 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
     
     Optimized for GitHub Actions (6-hour limit) with conservative rate limiting.
     Processes all artists (~3,300) in approximately 3-4 hours safely.
+    
+    Args:
+        batch_size: Number of artists per batch (default: 20 for safety)
+        delay_between_batches: Seconds to wait between batches (default: 30)
+        delay_between_artists: Seconds to wait between artists (default: 1.5)
+        max_artists: Maximum artists to process (default: None = all artists)
     """
     spotify_manager = get_spotify_manager()
     artist_ids = load_artist_ids()
@@ -153,6 +152,7 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
     
     new_tracks = []
     new_track_ids = []
+    tracks_info = []
     total_artists = len(artist_ids)
     
     log.info(f"🎧 Checking {total_artists} artists in batches of {batch_size}...")
@@ -167,9 +167,6 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
         
         log.info(f"\n🔹 Processing batch {batch_num}/{total_batches} ({len(batch)} artists)")
 
-        new_album_data = [] # Store tuples of (album_id, days_diff)
-
-        # STEP 1: Find all new album IDs in this batch of artists
         for idx, artist_id in enumerate(batch):
             try:
                 albums = safe_spotify_call(sp.artist_albums, artist_id, album_type='album,single', limit=10)
@@ -181,50 +178,43 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
                         album.get('release_date_precision', 'day')
                     )
                     
-                    if yesterday_start <= release_date <= now:
+                    if release_date < yesterday_start:
+                        continue
+                    
+                    if release_date <= now:
                         days_diff = (now - release_date).days
+                        
                         if days_diff <= 1:
-                            # Save the ID to fetch later in bulk
-                            new_album_data.append((album['id'], days_diff))
+                            tracks = safe_spotify_call(sp.album_tracks, album['id'])['items']
+                            time.sleep(0.5)
                             
+                            for track in tracks:
+                                track_id = track['id']
+                                
+                                if track_id not in added_track_ids and track_id not in new_track_ids:
+                                    track_name = track['name']
+                                    artists_str = ', '.join(a['name'] for a in track['artists'])
+                                    release_date_str = release_date.strftime('%Y-%m-%d')
+                                    
+                                    log.info(f"🎵 New track ({days_diff}d old): {track_name} — {artists_str} [{release_date_str}]")
+                                    
+                                    new_tracks.append(track['uri'])
+                                    new_track_ids.append(track_id)
+
+                                    tracks_info.append({
+                                        'name': track_name,
+                                        'artists': artists_str,
+                                        'release_date': release_date_str,
+                                        'uri': track['uri'],
+                                        'days_old': days_diff
+                                    })
+
+                time.sleep(delay_between_artists)
+                
             except Exception as e:
                 log.error(f"❌ Error with artist {artist_id}: {e}")
                 continue
-
-            time.sleep(delay_between_artists)
-
-        # STEP 2: Fetch tracks for all discovered albums in chunks of 20
-        if new_album_data:
-            # Extract just the IDs for the API request
-            just_ids = [item[0] for item in new_album_data]
-            
-            for i in range(0, len(just_ids), 20):
-                chunk_ids = just_ids[i:i + 20]
-                try:
-                    # ONE call gets up to 20 albums AND all their tracks
-                    bulk_albums = safe_spotify_call(sp.albums, chunk_ids)
-                    time.sleep(1) # Slightly longer sleep after a heavy bulk call
-                    
-                    for album_obj in bulk_albums['albums']:
-                        # Match the album back to our days_diff tracking
-                        days_diff = next(item[1] for item in new_album_data if item[0] == album_obj['id'])
-                        
-                        # Extract the tracks directly from the album object
-                        for track in album_obj['tracks']['items']:
-                            track_id = track['id']
-                            
-                            if track_id not in added_track_ids and track_id not in new_track_ids:
-                                track_name = track['name']
-                                artists_str = ', '.join(a['name'] for a in track['artists'])
-                                
-                                log.info(f"🎵 New track ({days_diff}d old): {track_name} — {artists_str}")
-                                
-                                new_tracks.append(track['uri'])
-                                new_track_ids.append(track_id)
-                                
-                except Exception as e:
-                    log.error(f"❌ Error processing bulk albums: {e}")
-
+        
         if batch_num < total_batches:
             log.info(f"⏸ Waiting {delay_between_batches}s before next batch...")
             time.sleep(delay_between_batches)
@@ -243,6 +233,7 @@ def check_new_releases(batch_size=20, delay_between_batches=30, delay_between_ar
             save_added_track_id(track_id)
         
         log.info(f"✅ Successfully added {len(new_tracks)} new tracks to playlist!")
+
 
     else:
         log.info("\n✨ No new tracks found from yesterday or today.")
